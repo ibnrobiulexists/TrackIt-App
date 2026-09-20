@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">TrackIt</string>
+    <string name="title_activity_main">TrackIt</string>
+    <string name="package_name">com.ibnrobiul.trackit</string>
+    <string name="custom_url_scheme">com.ibnrobiul.trackit</string>
+</resources>
