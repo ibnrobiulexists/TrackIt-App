@@ -988,7 +988,7 @@ function render(){
       const row = document.createElement('div');
       row.className = 'tx-row';
       row.innerHTML = `
-        <span class="note">${t.note}</span>
+        <span class="note">${t.note}${t.isDuePayment ? ' <span class="paid-tick">✓</span>' : ''}</span>
         <span class="amt ${t.type === 'income' ? 'credit' : 'debit'}">${t.type==='income' ? '+' : '-'}${fmtSlash(t.amount)}</span>
         <button class="del" data-id="${t.id}">✕</button>
       `;
@@ -1475,6 +1475,18 @@ $('btnDuePopupPaid').addEventListener('click', async () => {
   if(due){
     due.paid = true;
     await saveDues();
+
+    transactions.push({
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2,7),
+      type: 'expense',
+      amount: due.amount,
+      note: `Due Paid: ${due.name}`,
+      date: new Date().toISOString().slice(0,10),
+      isDuePayment: true
+    });
+    await saveTransactions();
+    render();
+
     showToast(`Marked "${due.name}" as paid`);
   }
   $('duePopupOverlay').classList.remove('open');
