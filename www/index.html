@@ -1974,9 +1974,33 @@ async function deliverFile(blob, filename){
   const isNative = cap && typeof cap.isNativePlatform === 'function' && cap.isNativePlatform();
 
   if(isNative && typeof cap.nativePromise === 'function'){
-    // Inside the installed app: save to cache, then open Android's share sheet
+    let data;
     try{
-      const data = await blobToBase64(blob);
+      data = await blobToBase64(blob);
+    }catch(err){
+      showToast('Export failed');
+      return;
+    }
+
+    // 1) Save straight into the phone's Downloads folder
+    //    (asks for storage permission on older Android versions where it is required)
+    try{
+      const res = await cap.nativePromise('DownloadSaver', 'save', {
+        filename: filename,
+        data: data,
+        mimeType: blob.type || 'application/octet-stream'
+      });
+      showToast('Saved to Downloads: ' + ((res && res.filename) || filename));
+      return;
+    }catch(err){
+      const msg = String((err && (err.message || err.errorMessage)) || err || '');
+      if(/permission/i.test(msg)){
+        showToast('Storage permission denied — opening share instead');
+      }
+    }
+
+    // 2) Fallback: open Android's share sheet
+    try{
       const saved = await cap.nativePromise('Filesystem', 'writeFile', {
         path: filename,
         data: data,
@@ -1987,10 +2011,10 @@ async function deliverFile(blob, filename){
         dialogTitle: 'Save or share',
         files: [saved.uri]
       });
-    }catch(err){
-      const msg = String((err && (err.message || err.errorMessage)) || err || '');
-      if(/cancel/i.test(msg)) return;
-      showToast('Export failed: ' + msg.slice(0, 80));
+    }catch(err2){
+      const msg2 = String((err2 && (err2.message || err2.errorMessage)) || err2 || '');
+      if(/cancel/i.test(msg2)) return;
+      showToast('Export failed: ' + msg2.slice(0, 80));
     }
     return;
   }
