@@ -1119,7 +1119,6 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var n,r,i,a,
         <h1><span>Track</span>It</h1>
         <div class="subtitle">Track your Money</div>
       </div>
-      <button class="theme-btn" id="exportBtn" aria-label="Export calculations" title="Export">⬇</button>
       <button class="theme-btn" id="lockSettingsBtn" aria-label="App lock settings" title="App Lock">🔒</button>
       <button class="theme-btn" id="themeBtn" aria-label="Change theme">◐</button>
     </div>
@@ -2289,7 +2288,6 @@ function roundRect(ctx, x, y, w, h, r){
   ctx.closePath();
 }
 
-$('exportBtn').addEventListener('click', () => $('exportOverlay').classList.add('open'));
 $('btnExportClose').addEventListener('click', () => $('exportOverlay').classList.remove('open'));
 $('exportOverlay').addEventListener('click', (e) => { if(e.target.id === 'exportOverlay') $('exportOverlay').classList.remove('open'); });
 $('exportPdfOption').addEventListener('click', () => {
