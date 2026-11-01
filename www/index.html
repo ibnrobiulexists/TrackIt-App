@@ -654,6 +654,25 @@
   .due-total-line span{ color: var(--gold); }
   #duesList .tx-row{ padding: 12px 4px; }
   #duesList .tx-row .note{ font-size:15px; }
+  /* long-press rows: no text selection / copy menu here */
+  #duesList .tx-row, #duesList .tx-row .note{
+    user-select:none;
+    -webkit-user-select:none;
+    -webkit-touch-callout:none;
+  }
+  .due-hint-line{
+    font-size:11px;
+    color: var(--ink-soft);
+    opacity:0.8;
+    margin: -6px 0 10px;
+  }
+  .btn-delete{ background: var(--debit); color:#fff; }
+  .due-delete-note{
+    font-size:12px;
+    line-height:1.5;
+    color: var(--ink-soft);
+    margin: -10px 6px 18px;
+  }
   .type-toggle{ display:flex; gap:8px; margin-bottom:16px; }
   .type-toggle button{
     flex:1; padding:10px 0; border-radius:8px;
@@ -1244,6 +1263,7 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var n,r,i,a,
   <div class="sheet">
     <h2 id="duesTitle">To Pay</h2>
     <div class="due-total-line"><span id="duesTotalLabel">Total To Pay</span>: <span id="duesSheetTotal">৳0</span></div>
+    <div class="due-hint-line">Tap a name to mark it paid · Long-press to delete</div>
     <div id="duesList"></div>
     <div class="empty-state" id="duesEmptyState" style="display:none;">Nothing here right now.</div>
     <div class="sheet-actions">
@@ -1282,6 +1302,18 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var n,r,i,a,
     <div class="sheet-actions">
       <button class="btn-cancel" id="btnDuePopupClose">Close</button>
       <button class="btn-paid" id="btnDuePopupPaid">Paid</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="dueDeleteOverlay">
+  <div class="sheet due-popup-sheet">
+    <div class="due-popup-name" id="dueDeleteName">—</div>
+    <div class="due-popup-amount" id="dueDeleteAmount">৳0</div>
+    <div class="due-delete-note" id="dueDeleteNote"></div>
+    <div class="sheet-actions">
+      <button class="btn-cancel" id="btnDueDeleteCancel">Cancel</button>
+      <button class="btn-delete" id="btnDueDeleteConfirm">Delete</button>
     </div>
   </div>
 </div>
@@ -1805,6 +1837,83 @@ function renderListSummaries(){
   $('recvTotal').textContent = fmtMoney(openTotal('recv'));
 }
 
+let suppressClickUntil = 0;
+let pendingDeleteId = null;
+
+function attachLongPress(el, callback){
+  let timer = null, sx = 0, sy = 0, fired = false;
+  const begin = (x, y) => {
+    sx = x; sy = y;
+    fired = false;
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = null;
+      fired = true;
+      callback();
+    }, 550);
+  };
+  const cancel = () => { clearTimeout(timer); timer = null; };
+  // Lifting the finger after a long-press: swallow the click that follows it
+  const release = () => {
+    cancel();
+    if(fired){
+      suppressClickUntil = Date.now() + 400;
+      fired = false;
+    }
+  };
+  const moved = (x, y) => { if(Math.abs(x - sx) > 10 || Math.abs(y - sy) > 10) cancel(); };
+
+  el.addEventListener('touchstart', e => begin(e.touches[0].clientX, e.touches[0].clientY), { passive: true });
+  el.addEventListener('touchmove', e => moved(e.touches[0].clientX, e.touches[0].clientY), { passive: true });
+  el.addEventListener('touchend', release);
+  el.addEventListener('touchcancel', cancel);
+  el.addEventListener('mousedown', e => begin(e.clientX, e.clientY));
+  el.addEventListener('mousemove', e => moved(e.clientX, e.clientY));
+  el.addEventListener('mouseup', release);
+  el.addEventListener('mouseleave', cancel);
+  el.addEventListener('contextmenu', e => e.preventDefault());
+}
+
+function openDueDeletePopup(id){
+  const cfg = LISTS[activeList];
+  const due = store[activeList].find(d => d.id === id);
+  if(!due) return;
+  pendingDeleteId = id;
+  $('dueDeleteName').textContent = due.name;
+  $('dueDeleteAmount').innerHTML = fmtSlash(due.amount) + (due.paid ? ' <span class="paid-tick">✓</span>' : '');
+  $('dueDeleteAmount').style.color = due.paid ? 'var(--credit)' : cfg.openColor;
+  $('dueDeleteNote').textContent = due.addTxId
+    ? 'Its entries in your earning/spending list will be removed too.'
+    : 'Entries already in your earning/spending list will stay as they are.';
+  $('dueDeleteOverlay').classList.add('open');
+}
+
+function closeDueDeletePopup(){
+  $('dueDeleteOverlay').classList.remove('open');
+  pendingDeleteId = null;
+}
+
+$('btnDueDeleteCancel').addEventListener('click', closeDueDeletePopup);
+$('dueDeleteOverlay').addEventListener('click', (e) => { if(e.target.id === 'dueDeleteOverlay') closeDueDeletePopup(); });
+
+$('btnDueDeleteConfirm').addEventListener('click', async () => {
+  if(!pendingDeleteId) return;
+  const due = store[activeList].find(d => d.id === pendingDeleteId);
+  if(due){
+    const linked = [due.addTxId, due.settleTxId].filter(Boolean);
+    store[activeList] = store[activeList].filter(d => d.id !== pendingDeleteId);
+    saveList(activeList);
+    if(linked.length){
+      transactions = transactions.filter(t => !linked.includes(t.id));
+      await saveTransactions();
+      render();
+    }
+    showToast('Deleted');
+  }
+  closeDueDeletePopup();
+  renderListSheet();
+});
+
 function renderListSheet(){
   const cfg = LISTS[activeList];
   const items = store[activeList];
@@ -1832,7 +1941,15 @@ function renderListSheet(){
   });
 
   list.querySelectorAll('.due-name').forEach(el => {
-    el.addEventListener('click', () => openDueActionPopup(el.getAttribute('data-id')));
+    el.addEventListener('click', () => {
+      if(Date.now() < suppressClickUntil) return;   // ignore the tap that ends a long-press
+      openDueActionPopup(el.getAttribute('data-id'));
+    });
+  });
+
+  list.querySelectorAll('.tx-row').forEach(row => {
+    const id = row.querySelector('.due-name').getAttribute('data-id');
+    attachLongPress(row, () => openDueDeletePopup(id));
   });
 }
 
@@ -1881,12 +1998,13 @@ $('btnDueSave').addEventListener('click', async () => {
   const date = $('dueDate').value || new Date().toISOString().slice(0,10);
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
 
-  store[activeList].push({ id: uid(), name: name, amount: amount, date: date, paid: false });
+  const addTxId = uid();
+  store[activeList].push({ id: uid(), name: name, amount: amount, date: date, paid: false, addTxId: addTxId });
   saveList(activeList);
 
   // Adding to To Pay brings money in; adding to To Receive sends money out
   transactions.push({
-    id: uid(),
+    id: addTxId,
     type: cfg.addType,
     amount: amount,
     note: `${cfg.addPrefix}: ${name}`,
@@ -1937,12 +2055,14 @@ $('btnDuePopupPaid').addEventListener('click', async () => {
   const cfg = LISTS[activeList];
   const due = store[activeList].find(d => d.id === activeDueId);
   if(due && !due.paid){
+    const settleTxId = Date.now().toString(36) + Math.random().toString(36).slice(2,7);
     due.paid = true;
+    due.settleTxId = settleTxId;
     saveList(activeList);
 
     // To Pay paid -> money goes out; To Receive paid -> money comes in
     transactions.push({
-      id: Date.now().toString(36) + Math.random().toString(36).slice(2,7),
+      id: settleTxId,
       type: cfg.settleType,
       amount: due.amount,
       note: `${cfg.settlePrefix}: ${due.name}`,
