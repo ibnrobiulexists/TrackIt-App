@@ -1960,6 +1960,53 @@ $('btnDuePopupPaid').addEventListener('click', async () => {
   renderListSheet();
 });
 
+function blobToBase64(blob){
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onloadend = () => resolve(String(r.result).split(',')[1]);
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(blob);
+  });
+}
+
+async function deliverFile(blob, filename){
+  const cap = window.Capacitor;
+  const isNative = cap && typeof cap.isNativePlatform === 'function' && cap.isNativePlatform();
+
+  if(isNative && typeof cap.nativePromise === 'function'){
+    // Inside the installed app: save to cache, then open Android's share sheet
+    try{
+      const data = await blobToBase64(blob);
+      const saved = await cap.nativePromise('Filesystem', 'writeFile', {
+        path: filename,
+        data: data,
+        directory: 'CACHE'
+      });
+      await cap.nativePromise('Share', 'share', {
+        title: filename,
+        dialogTitle: 'Save or share',
+        files: [saved.uri]
+      });
+    }catch(err){
+      const msg = String((err && (err.message || err.errorMessage)) || err || '');
+      if(/cancel/i.test(msg)) return;
+      showToast('Export failed: ' + msg.slice(0, 80));
+    }
+    return;
+  }
+
+  // In a normal browser: regular download
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+  showToast('Saved to Downloads');
+}
+
 function todayLabel(){
   return new Date().toLocaleDateString('en-US', {day:'numeric', month:'long', year:'numeric'});
 }
@@ -2090,8 +2137,7 @@ function exportPdf(){
     });
   }
 
-  doc.save(`TrackIt-Report-${new Date().toISOString().slice(0,10)}.pdf`);
-  showToast('PDF saved to Downloads');
+  deliverFile(doc.output('blob'), `TrackIt-Report-${new Date().toISOString().slice(0,10)}.pdf`);
 }
 
 function exportImage(){
@@ -2205,15 +2251,7 @@ function exportImage(){
   ctx.textAlign = 'left';
 
   canvas.toBlob((blob) => {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `TrackIt-Summary-${new Date().toISOString().slice(0,10)}.png`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    showToast('Image saved to Downloads');
+    deliverFile(blob, `TrackIt-Summary-${new Date().toISOString().slice(0,10)}.png`);
   }, 'image/png');
 }
 
